@@ -1,13 +1,13 @@
-"""RPM dependency lines parser and helpers.
+"""RPM dependency lines parser and helper.
 
 Contains class DependencyParser which parses string and generates
-token tree. For common manipulation is method flat_out() useful, it
-just splits dependencies into list.
+a token tree. The method flat_out() is useful For common manipulations, it
+just splits dependencies into a list.
 
-For future development is useful find_end_of_macro().
+The function find_end_of_macro() should be considered for future development.
 
 """
-import re
+import regex
 import logging
 
 from .rpmexception import NoMatchException
@@ -17,7 +17,7 @@ DEBUG = None
 if DEBUG:
     logging.basicConfig(level=logging.DEBUG)
 
-re_parens = re.compile(
+regex_parens = regex.compile(
     r'(' +
     r'\('  + r'|' + r'\)'  + r'|' +
     r'\\(' + r'|' + r'\\)' + r'|' +
@@ -25,7 +25,7 @@ re_parens = re.compile(
     r')'
 )
 
-re_braces = re.compile(
+regex_braces = regex.compile(
     r'(' +
     r'\{'  + r'|' + r'\}'  + r'|' +
     r'\\{' + r'|' + r'\\}' + r'|' +
@@ -33,20 +33,22 @@ re_braces = re.compile(
     r')'
 )
 
-re_name = re.compile(r'[-A-Za-z0-9_~():.+/*\[\]]+')
-re_version = re.compile(r'[-A-Za-z0-9_~():.+]+')
-re_spaces = re.compile(r'\s+')
-re_macro_unbraced = re.compile('%[A-Za-z0-9_]{3,}')
-re_version_operator = re.compile('(>=|<=|=>|=<|>|<|=)')
+regex_name = regex.compile(r'[-A-Za-z0-9_~():.+/*\[\]]+')
+regex_version = regex.compile(r'[-A-Za-z0-9_~():.+]+')
+regex_spaces = regex.compile(r'\s+')
+regex_macro_unbraced = regex.compile('%[A-Za-z0-9_]{3,}')
+regex_version_operator = regex.compile('(>=|<=|=>|=<|>|<|=)')
 
-def find_end_of_macro(string, regex, opening, closing):
+def find_end_of_macro(string, regex, opening, closing, strip_leading_percent):
     if DEBUG:
         logger = logging.getLogger('DepParser')
     else:
         logger = None
-    macro = string[0:2]
-    # eat '%{'
-    string = string[2:]
+    strip_leading_percent == '%' 
+    if strip_leading_percent == True:
+        macro = string[0:1]
+        # Only eat opening '%'
+        string = string[1:]
 
     opened = 1
     while opened and string:
@@ -139,12 +141,11 @@ class DependencyParser(object):
 
     def read_spaces(self, state_change=True):
         try:
-            spaces, self.string = consume_chars(re_spaces, self.string, self.logger)
+            spaces, self.string = consume_chars(regex_spaces, self.string, self.logger)
             self.token.append(spaces)
             if state_change:
                 self.state.pop()  # remove 'spaces' state
-                # if we were reading version, space definitely means
-                # end of that
+                # if we were reading version, space is end of version
                 if self.state[-1] == 'version':
                     self.state.pop()
                     self.dump_token()
@@ -179,7 +180,7 @@ class DependencyParser(object):
 
     def read_name(self):
         try:
-            name, self.string = consume_chars(re_name, self.string, self.logger)
+            name, self.string = consume_chars(regex_name, self.string, self.logger)
             if self.token and self.token[-1].isspace():
                 self.dump_token()
             self.token.append(name)
@@ -195,7 +196,7 @@ class DependencyParser(object):
         try:
             # 3 or more alphanumeric characters
             macro, self.string = consume_chars(
-                re_macro_unbraced, self.string, self.logger)
+                regex_macro_unbraced, self.string, self.logger)
             self.token.append(macro)
             self.state.pop()  # remove 'macro_unbraced' state
             self.status()
@@ -205,7 +206,7 @@ class DependencyParser(object):
     def read_version_operator(self):
         try:
             operator, self.string = consume_chars(
-                re_version_operator, self.string, self.logger)
+                regex_version_operator, self.string, self.logger)
             self.token.append(operator)
             # Note: this part is a bit tricky, I need to read possible
             # spaces or tabs now so I won't get to [ ..., 'version',
@@ -219,14 +220,14 @@ class DependencyParser(object):
     def read_version(self):
         try:
             version, self.string = consume_chars(
-                re_version, self.string, self.logger)
+                regex_version, self.string, self.logger)
             self.token.append(version)
             self.status()
         except NoMatchException:
             self.read_unknown()
 
     def read_macro_name(self):
-        macro = find_end_of_macro(self.string, re_braces, '{', '}')
+        macro = find_end_of_macro(self.string, regex_braces, '{', '}')
         # remove macro from string
         self.string = self.string[len(macro):]
         self.token.append(macro)
@@ -235,7 +236,7 @@ class DependencyParser(object):
         self.status()
 
     def read_macro_shell(self):
-        macro = find_end_of_macro(self.string, re_parens, '(', ')')
+        macro = find_end_of_macro(self.string, regex_parens, '(', ')')
         self.string = self.string[len(macro):]
         self.token.append(macro)
         # now we expect previous state
